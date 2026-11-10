@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#1f5f3f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Balise">
+  <title>Balise – Rando hors-ligne</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Barre de recherche -->
+  <form id="search" autocomplete="off">
+    <input id="search-input" type="search" placeholder="Rechercher un lieu ou « 45.92, 6.87 »" enterkeyhint="search">
+    <ul id="search-results" hidden></ul>
+  </form>
+
+  <!-- Bandeau de navigation -->
+  <div id="nav-hud" hidden>
+    <div id="offroute" hidden>
+      <strong>⚠ Hors itinéraire</strong>
+      <span id="offroute-text"></span>
+    </div>
+    <div class="hud-row">
+      <div><small>Restant</small><b id="hud-remain">–</b></div>
+      <div><small>D+ restant</small><b id="hud-gain">–</b></div>
+      <div><small>Altitude</small><b id="hud-ele">–</b></div>
+      <div><small>Temps est.</small><b id="hud-time">–</b></div>
+    </div>
+    <canvas id="hud-profile" height="54"></canvas>
+    <button id="nav-stop" class="btn small danger">Arrêter la navigation</button>
+  </div>
+
+  <!-- Boutons flottants -->
+  <div id="fabs">
+    <button id="btn-layers" class="fab" title="Fond de carte" aria-label="Fond de carte">🗺️</button>
+    <button id="btn-locate" class="fab" title="Ma position" aria-label="Ma position">◎</button>
+    <button id="btn-sos" class="fab sos" title="Urgence / coordonnées" aria-label="Urgence">SOS</button>
+  </div>
+
+  <div id="layer-menu" class="popover" hidden></div>
+
+  <!-- Panneau inférieur -->
+  <section id="sheet" hidden>
+    <div id="sheet-handle" aria-label="Réduire / agrandir"><span></span></div>
+    <div id="sheet-body">
+
+      <!-- Liste des itinéraires -->
+      <div class="pane" data-pane="routes">
+        <h2>Mes itinéraires</h2>
+        <div class="row wrap">
+          <label class="btn primary">
+            Importer GPX / KML / GeoJSON
+            <input id="file-import" type="file" accept=".gpx,.kml,.geojson,.json,application/gpx+xml,application/vnd.google-earth.kml+xml" multiple hidden>
+          </label>
+          <button id="btn-area" class="btn">Télécharger la zone affichée</button>
+        </div>
+        <ul id="route-list" class="list"></ul>
+        <p id="route-empty" class="muted">Aucun itinéraire. Importe un fichier GPX (exporté d'un site de rando, d'une montre…) ou trace-le dans l'onglet « Tracer ».</p>
+        <details class="storage">
+          <summary>Stockage hors-ligne</summary>
+          <p id="storage-info" class="muted">…</p>
+          <button id="btn-clear-tiles" class="btn small danger">Effacer toutes les cartes téléchargées</button>
+        </details>
+        <button id="btn-install" class="btn" hidden>📲 Installer l'application</button>
+      </div>
+
+      <!-- Détail d'un itinéraire -->
+      <div class="pane" data-pane="detail">
+        <div class="row between">
+          <button id="detail-back" class="btn small">← Retour</button>
+          <button id="detail-rename" class="btn small">Renommer</button>
+        </div>
+        <h2 id="detail-name"></h2>
+        <div id="detail-stats" class="stats"></div>
+        <canvas id="detail-profile" height="110"></canvas>
+        <p id="profile-readout" class="muted small">&nbsp;</p>
+        <button id="detail-nav" class="btn primary big">▶ Naviguer sur cet itinéraire</button>
+
+        <fieldset class="dl">
+          <legend>Carte hors-ligne</legend>
+          <p id="detail-offline" class="small"></p>
+          <div class="row wrap">
+            <label>Fond <select id="dl-layer"></select></label>
+            <label>Marge <select id="dl-buffer">
+              <option value="300">300 m</option>
+              <option value="700" selected>700 m</option>
+              <option value="1500">1,5 km</option>
+              <option value="3000">3 km</option>
+            </select></label>
+          </div>
+          <p id="dl-estimate" class="small muted"></p>
+          <div class="progress" hidden><div></div></div>
+          <div class="row">
+            <button id="dl-start" class="btn primary">⬇ Télécharger</button>
+            <button id="dl-cancel" class="btn" hidden>Annuler</button>
+          </div>
+        </fieldset>
+
+        <div class="row wrap">
+          <button id="detail-export" class="btn">Exporter GPX</button>
+          <button id="detail-delete" class="btn danger">Supprimer</button>
+        </div>
+      </div>
+
+      <!-- Tracer un itinéraire -->
+      <div class="pane" data-pane="draw">
+        <h2>Tracer un itinéraire</h2>
+        <p class="muted small">Touche la carte pour ajouter des points. Avec « suivre les sentiers », le tracé suit les chemins (nécessite du réseau).</p>
+        <label class="switch"><input id="draw-snap" type="checkbox" checked> Suivre les sentiers</label>
+        <div id="draw-stats" class="stats"></div>
+        <div class="row wrap">
+          <button id="draw-undo" class="btn">↶ Annuler</button>
+          <button id="draw-clear" class="btn">Effacer</button>
+          <button id="draw-save" class="btn primary">Enregistrer</button>
+        </div>
+      </div>
+
+      <!-- Enregistrer sa trace -->
+      <div class="pane" data-pane="record">
+        <h2>Enregistrer ma trace</h2>
+        <div id="rec-stats" class="stats"></div>
+        <div class="row wrap">
+          <button id="rec-start" class="btn primary">● Démarrer</button>
+          <button id="rec-pause" class="btn" hidden>❚❚ Pause</button>
+          <button id="rec-stop" class="btn danger" hidden>■ Terminer et sauvegarder</button>
+        </div>
+        <p class="muted small">Garde l'écran allumé : sur téléphone, une application web ne reçoit plus le GPS quand l'écran est verrouillé. L'appli empêche la mise en veille tant qu'elle est ouverte.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Barre d'onglets -->
+  <nav id="tabs">
+    <button data-tab="map" class="active"><span>🗺️</span>Carte</button>
+    <button data-tab="routes"><span>🥾</span>Itinéraires</button>
+    <button data-tab="draw"><span>✏️</span>Tracer</button>
+    <button data-tab="record"><span>⏺</span>Enregistrer</button>
+  </nav>
+
+  <!-- Urgence -->
+  <dialog id="sos">
+    <h2>Urgence</h2>
+    <p>Ma position actuelle :</p>
+    <pre id="sos-coords">Recherche du GPS…</pre>
+    <div class="row wrap">
+      <a class="btn danger big" href="tel:112">📞 Appeler le 112</a>
+      <button id="sos-copy" class="btn">Copier</button>
+      <button id="sos-sms" class="btn">Envoyer par SMS</button>
+    </div>
+    <p class="muted small">Le 112 fonctionne dans toute l'Europe, même sans carte SIM ou sans ton opérateur (via un autre réseau). En montagne en France : PGHM / secours en montagne via le 112. Si le réseau est trop faible pour appeler, un SMS passe souvent mieux (114 en France pour les SMS d'urgence).</p>
+    <form method="dialog"><button class="btn">Fermer</button></form>
+  </dialog>
+
+  <div id="toast" hidden></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
